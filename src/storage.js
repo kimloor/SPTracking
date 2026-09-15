@@ -4,6 +4,7 @@ export async function persistCapture(db, capture) {
   const originalMinor = capture.original_price == null ? null : toMinor(capture.original_price);
   const stockStatus = capture.stock === 0 ? 'OUT_OF_STOCK' : 'ACTIVE';
   const canonicalUrl = `https://shopee.co.th/-i.${capture.shop_id}.${capture.item_id}`;
+  const historySource = normalizeSource(capture.transport);
 
   await db.prepare(`
     INSERT INTO products (shop_id, item_id, name, canonical_url, status, updated_at)
@@ -53,8 +54,8 @@ export async function persistCapture(db, capture) {
     db.prepare(`
       INSERT INTO price_history (
         variant_id, price_minor, original_price_minor, stock_status, stock, source, checked_at
-      ) VALUES (?, ?, ?, ?, ?, 'browser_capture', ?)
-    `).bind(variant.id, priceMinor, originalMinor, stockStatus, capture.stock, now),
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).bind(variant.id, priceMinor, originalMinor, stockStatus, capture.stock, historySource, now),
     db.prepare(`
       INSERT INTO tracking (variant_id, active, first_requested_at, last_requested_at, created_at)
       VALUES (?, 1, ?, ?, ?)
@@ -64,7 +65,7 @@ export async function persistCapture(db, capture) {
     `).bind(variant.id, now, now, now)
   ]);
 
-  return { product_id: product.id, variant_id: variant.id, checked_at: now };
+  return { product_id: product.id, variant_id: variant.id, checked_at: now, source: historySource };
 }
 
 export async function getVariantHistory(db, shopId, itemId, modelId, limit = 200) {
@@ -126,6 +127,13 @@ export async function getVariantHistory(db, shopId, itemId, modelId, limit = 200
       checked_at: r.checked_at
     }))
   };
+}
+
+function normalizeSource(value) {
+  const source = value == null ? '' : String(value).trim().toLowerCase();
+  if (['fetch', 'xhr', 'dom'].includes(source)) return 'browser_capture';
+  if (/^[a-z0-9_-]{1,50}$/.test(source)) return source;
+  return 'browser_capture';
 }
 
 function toMinor(value) {
