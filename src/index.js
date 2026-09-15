@@ -8,6 +8,14 @@ export default {
       return json({ ok: true, service: 'sptracking-fetcher-probe' });
     }
 
+    if (url.pathname === '/api/browser-capture' && request.method === 'POST') {
+      return handleBrowserCapture(request);
+    }
+
+    if (url.pathname === '/api/browser-capture' && request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: corsHeaders() });
+    }
+
     const shopid = url.searchParams.get('shopid');
     const itemid = url.searchParams.get('itemid');
     const modelid = url.searchParams.get('modelid');
@@ -26,6 +34,49 @@ export default {
     return probeItemApi({ shopid, itemid, modelid });
   }
 };
+
+async function handleBrowserCapture(request) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonCors({ ok: false, error: 'Invalid JSON body' }, 400);
+  }
+
+  const shopid = normalizeId(body?.shop_id ?? body?.shopid);
+  const itemid = normalizeId(body?.item_id ?? body?.itemid);
+  const modelid = normalizeId(body?.model_id ?? body?.modelid, true);
+  const productName = cleanText(body?.product_name, 500);
+  const variationName = cleanText(body?.variation_name, 300);
+  const price = normalizePrice(body?.price);
+  const originalPrice = normalizePrice(body?.original_price, true);
+  const stock = normalizeStock(body?.stock);
+  const sourceUrl = cleanText(body?.source_url, 2000);
+
+  if (!shopid || !itemid || !modelid) {
+    return jsonCors({ ok: false, error: 'shop_id, item_id and model_id are required' }, 400);
+  }
+  if (price === null) {
+    return jsonCors({ ok: false, error: 'price is required and must be numeric' }, 400);
+  }
+
+  return jsonCors({
+    ok: true,
+    accepted: true,
+    capture: {
+      shop_id: shopid,
+      item_id: itemid,
+      model_id: modelid,
+      product_name: productName,
+      variation_name: variationName,
+      price,
+      original_price: originalPrice,
+      stock,
+      source_url: sourceUrl,
+      captured_at: new Date().toISOString()
+    }
+  });
+}
 
 async function probeItemApi({ shopid, itemid, modelid }) {
   const target = `${SHOPEE_ITEM_API}?shopid=${encodeURIComponent(shopid)}&itemid=${encodeURIComponent(itemid)}`;
@@ -183,6 +234,30 @@ function scoreBundle(url) {
   return score;
 }
 
+function normalizeId(value, optional = false) {
+  if (value === null || value === undefined || value === '') return optional ? null : '';
+  const s = String(value).trim();
+  return /^\d+$/.test(s) ? s : optional ? null : '';
+}
+
+function normalizePrice(value, optional = false) {
+  if (value === null || value === undefined || value === '') return optional ? null : null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function normalizeStock(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+}
+
+function cleanText(value, maxLength) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text ? text.slice(0, maxLength) : null;
+}
+
 function browserHeaders(accept, navigate) {
   const headers = {
     accept,
@@ -208,6 +283,22 @@ function countOccurrences(text, needle) {
     count += 1;
     from = index + needle.length;
   }
+}
+
+function corsHeaders() {
+  return {
+    'access-control-allow-origin': '*',
+    'access-control-allow-methods': 'POST,OPTIONS',
+    'access-control-allow-headers': 'content-type',
+    'cache-control': 'no-store'
+  };
+}
+
+function jsonCors(data, status = 200) {
+  return new Response(JSON.stringify(data, null, 2), {
+    status,
+    headers: { 'content-type': 'application/json; charset=utf-8', ...corsHeaders() }
+  });
 }
 
 function json(data, status = 200) {
