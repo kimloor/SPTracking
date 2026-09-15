@@ -1,9 +1,31 @@
 import probe from './index.js';
 import { persistCapture, getVariantHistory } from './storage.js';
+import { renderHome } from './ui.js';
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    if (url.pathname === '/' && request.method === 'GET') {
+      return new Response(renderHome(), {
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-store'
+        }
+      });
+    }
+
+    if (url.pathname === '/health' && request.method === 'GET') {
+      return jsonCors({ ok: true, service: 'sptracking', database: !!env?.DB });
+    }
+
+    if (url.pathname === '/api/lookup' && request.method === 'POST') {
+      return handleLookup(request, env);
+    }
+
+    if (url.pathname === '/api/lookup' && request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: corsHeaders() });
+    }
 
     if (url.pathname === '/api/browser-capture' && request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders() });
@@ -31,6 +53,51 @@ export default {
     return probe.fetch(request, env, ctx);
   }
 };
+
+async function handleLookup(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonCors({ ok: false, error: 'Invalid JSON body' }, 400);
+  }
+
+  const parsed = parseShopeeUrl(body?.url);
+  if (!parsed.ok) {
+    return jsonCors({ ok: false, code: parsed.code, error: parsed.error }, 400);
+  }
+
+  if (!parsed.modelId) {
+    return jsonCors({
+      ok: false,
+      code: 'MODEL_REQUIRED',
+      error: 'Shopee URL does not include a selected model/variation'
+    }, 400);
+  }
+
+  if (!env?.DB) {
+    return jsonCors({ ok: false, error: 'D1 binding DB is not configured yet' }, 503);
+  }
+
+  try {
+    const result = await getVariantHistory(env.DB, parsed.shopId, parsed.itemId, parsed.modelId, 500);
+    if (!result) {
+      return jsonCors({
+        ok: false,
+        code: 'NOT_TRACKED',
+        error: 'This product variation has not been captured yet',
+        identity: {
+          shop_id: parsed.shopId,
+          item_id: parsed.itemId,
+          model_id: parsed.modelId
+        }
+      }, 404);
+    }
+    return jsonCors({ ok: true, canonical_url: parsed.canonicalUrl, ...result });
+  } catch (error) {
+    return jsonCors({ ok: false, error: 'Lookup failed', detail: String(error) }, 500);
+  }
+}
 
 async function handleBrowserCapture(request, env) {
   let body;
@@ -77,6 +144,58 @@ async function handleBrowserCapture(request, env) {
       capture: accepted
     }, 500);
   }
+}
+
+function parseShopeeUrl(raw) {
+  if (!raw || typeof raw !== 'string') {
+    return { ok: false, code: 'INVALID_URL', error: 'Shopee URL is required' };
+  }
+
+  let url;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    return { ok: false, code: 'INVALID_URL', error: 'Invalid URL' };
+  }
+
+  if (!/(^|\.)shopee\.co\.th$/i.test(url.hostname)) {
+    return { ok: false, code: 'INVALID_HOST', error: 'Only shopee.co.th URLs are supported' };
+  }
+
+  if (url.hostname.toLowerCase() === 's.shopee.co.th') {
+    return {
+      ok: false,
+      code: 'SHORT_URL_UNSUPPORTED',
+      error: 'Short Shopee URLs are not supported yet. Open the link first and copy the full product URL.'
+    };
+  }
+
+  const match = url.pathname.match(/-i\.(\d+)\.(\d+)/);
+  if (!match) {
+    return { ok: false, code: 'PRODUCT_ID_NOT_FOUND', error: 'Could not find shop_id and item_id in URL' };
+  }
+
+  const shopId = match[1];
+  const itemId = match[2];
+  let modelId = url.searchParams.get('modelid') || url.searchParams.get('model_id') || null;
+
+  const extraParams = url.searchParams.get('extraParams');
+  if (extraParams) {
+    try {
+      const parsed = JSON.parse(extraParams);
+      modelId = String(parsed?.display_model_id ?? parsed?.modelid ?? modelId ?? '') || null;
+    } catch {}
+  }
+
+  if (modelId && !/^\d+$/.test(modelId)) modelId = null;
+
+  return {
+    ok: true,
+    shopId,
+    itemId,
+    modelId,
+    canonicalUrl: `https://shopee.co.th/-i.${shopId}.${itemId}`
+  };
 }
 
 function normalizeCapture(body) {
