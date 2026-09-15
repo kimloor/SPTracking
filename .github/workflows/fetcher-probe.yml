@@ -11,46 +11,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Probe Worker root
+        continue-on-error: true
         run: |
-          set -euxo pipefail
-          curl -i --fail-with-body --max-time 30 "https://sptracking-fetcher-probe.ekqtjl.workers.dev/"
+          set -uxo pipefail
+          curl -i --max-time 30 "https://sptracking-fetcher-probe.ekqtjl.workers.dev/"
 
       - name: Probe MamyPoko variation
         run: |
-          set -euxo pipefail
-          curl -sS --fail-with-body --max-time 30 \
+          set -uxo pipefail
+          curl -sS --max-time 30 \
+            -w '\n__HTTP_STATUS__:%{http_code}\n' \
             "https://sptracking-fetcher-probe.ekqtjl.workers.dev/?shopid=50216086&itemid=845052410&modelid=1567087028" \
-            | tee mamypoko.json
+            | tee mamypoko.out
           echo
-          echo "--- response summary ---"
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          p = Path('mamypoko.json')
-          try:
-              data = json.loads(p.read_text())
-              print(json.dumps(data, ensure_ascii=False, indent=2)[:12000])
-          except Exception as e:
-              print(p.read_text()[:12000])
-              print('JSON parse error:', e)
-          PY
+          echo "--- response ---"
+          cat mamypoko.out
 
       - name: Probe Hitachi variation
         run: |
-          set -euxo pipefail
-          curl -sS --fail-with-body --max-time 30 \
+          set -uxo pipefail
+          curl -sS --max-time 30 \
+            -w '\n__HTTP_STATUS__:%{http_code}\n' \
             "https://sptracking-fetcher-probe.ekqtjl.workers.dev/?shopid=669016075&itemid=58155169453&modelid=315476033986" \
-            | tee hitachi.json
+            | tee hitachi.out
           echo
-          echo "--- response summary ---"
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          p = Path('hitachi.json')
-          try:
-              data = json.loads(p.read_text())
-              print(json.dumps(data, ensure_ascii=False, indent=2)[:12000])
-          except Exception as e:
-              print(p.read_text()[:12000])
-              print('JSON parse error:', e)
-          PY
+          echo "--- response ---"
+          cat hitachi.out
