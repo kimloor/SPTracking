@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "SPTracking Shopee Capture POC",
+  "version": "0.1.0",
+  "description": "Captures product data from Shopee requests already made by the open product page and sends the selected variant to SPTracking.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://shopee.co.th/*",
+    "https://*.shopee.co.th/*",
+    "https://sptracking-fetcher-probe.ekqtjl.workers.dev/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://shopee.co.th/*", "https://*.shopee.co.th/*"],
+      "js": ["hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://shopee.co.th/*", "https://*.shopee.co.th/*"],
+      "js": ["bridge.js"],
+      "run_at": "document_start",
+      "world": "ISOLATED"
+    }
+  ],
+  "action": {
+    "default_title": "SPTracking Capture",
+    "default_popup": "popup.html"
+  }
+}
