@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/fetcher-probe.yml"
       - "src/**"
+      - "browser-extension/**"
       - "wrangler.toml"
       - "package.json"
 
@@ -22,6 +23,17 @@ jobs:
         run: |
           set -uxo pipefail
           curl -i --max-time 30 "https://sptracking-fetcher-probe.ekqtjl.workers.dev/"
+
+      - name: Probe browser capture endpoint
+        run: |
+          set -uxo pipefail
+          curl -sS --max-time 30 \
+            -H 'content-type: application/json' \
+            -d '{"shop_id":"50216086","item_id":"845052410","model_id":"1567087028","product_name":"POC Test","variation_name":"XXL 34ชิ้น ชาย x4ห่อ","price":1390,"original_price":1390,"stock":1,"source_url":"https://shopee.co.th/-i.50216086.845052410"}' \
+            -w '\n__HTTP_STATUS__:%{http_code}\n' \
+            "https://sptracking-fetcher-probe.ekqtjl.workers.dev/api/browser-capture" \
+            | tee browser-capture.out
+          cat browser-capture.out
 
       - name: Probe MamyPoko API
         run: |
