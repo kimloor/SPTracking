@@ -8,5 +8,8 @@ database_name = "sptracking"
 database_id = "16ea8073-ae9f-4065-bb4a-bc528231bf75"
 migrations_dir = "migrations"
 
+[browser]
+binding = "BROWSER"
+
 [observability]
 enabled = true
