@@ -2,6 +2,7 @@
   const WORKER_ENDPOINT = 'https://sptracking-fetcher-probe.ekqtjl.workers.dev/api/browser-capture';
   const EVENT_TYPE = 'SPTRACKING_SHOPEE_ITEM';
   let lastKey = null;
+  let domTimer = null;
 
   window.addEventListener('message', async (event) => {
     if (event.source !== window) return;
@@ -25,7 +26,7 @@
     const modelId = String(model?.modelid ?? model?.model_id ?? '');
     if (!modelId) return;
 
-    const capture = {
+    await submitCapture({
       shop_id: ids.shopId,
       item_id: ids.itemId,
       model_id: modelId,
@@ -37,11 +38,58 @@
       source_url: location.href,
       transport: event.data.transport ?? null,
       captured_at_client: new Date().toISOString()
-    };
+    });
+  });
 
-    if (capture.price === null) return;
+  function scheduleDomCapture(delay = 1200) {
+    clearTimeout(domTimer);
+    domTimer = setTimeout(captureFromDom, delay);
+  }
 
-    const dedupeKey = `${capture.shop_id}:${capture.item_id}:${capture.model_id}:${capture.price}:${capture.stock ?? ''}`;
+  async function captureFromDom() {
+    const ids = parseShopeeUrl(location.href);
+    if (!ids.shopId || !ids.itemId || !ids.modelId) return;
+
+    const productName = firstText([
+      'h1',
+      '[data-testid="pdp-product-title"]',
+      '[class*="product-title"]'
+    ]);
+
+    const priceText = findPriceText();
+    const variationName = findSelectedVariationText();
+    const price = parseDisplayedPrice(priceText);
+
+    if (!productName || !variationName || price === null) {
+      await chrome.storage.local.set({
+        latest_capture_status: {
+          state: 'waiting_dom',
+          error: `DOM fallback ยังหาไม่ครบ: name=${!!productName}, variation=${!!variationName}, price=${price !== null}`,
+          at: new Date().toISOString()
+        }
+      });
+      return;
+    }
+
+    await submitCapture({
+      shop_id: ids.shopId,
+      item_id: ids.itemId,
+      model_id: ids.modelId,
+      product_name: productName,
+      variation_name: variationName,
+      price,
+      original_price: null,
+      stock: null,
+      source_url: location.href,
+      transport: 'dom',
+      captured_at_client: new Date().toISOString()
+    });
+  }
+
+  async function submitCapture(capture) {
+    if (!capture || capture.price === null || !capture.model_id) return;
+
+    const dedupeKey = `${capture.shop_id}:${capture.item_id}:${capture.model_id}:${capture.price}:${capture.variation_name ?? ''}`;
     if (dedupeKey === lastKey) return;
     lastKey = dedupeKey;
 
@@ -75,13 +123,13 @@
         }
       });
     }
-  });
+  }
 
   function parseShopeeUrl(rawUrl) {
     const url = new URL(rawUrl);
     const match = url.pathname.match(/-i\.(\d+)\.(\d+)/);
-    let shopId = match?.[1] || null;
-    let itemId = match?.[2] || null;
+    const shopId = match?.[1] || null;
+    const itemId = match?.[2] || null;
     let modelId = url.searchParams.get('modelid') || url.searchParams.get('model_id') || null;
 
     const extraParams = url.searchParams.get('extraParams');
@@ -93,6 +141,67 @@
     }
 
     return { shopId, itemId, modelId };
+  }
+
+  function firstText(selectors) {
+    for (const selector of selectors) {
+      const el = document.querySelector(selector);
+      const text = el?.textContent?.trim();
+      if (text) return text;
+    }
+    return null;
+  }
+
+  function findPriceText() {
+    const selectors = [
+      '[data-testid="pdp-product-price"]',
+      '[class*="product-price"]',
+      '[class*="price"]'
+    ];
+    for (const selector of selectors) {
+      const nodes = [...document.querySelectorAll(selector)];
+      for (const node of nodes) {
+        const text = node.textContent?.trim() || '';
+        if (/฿\s*[\d,.]+/.test(text)) return text;
+      }
+    }
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      const text = node.nodeValue?.trim() || '';
+      if (/^฿\s*[\d,.]+$/.test(text)) return text;
+    }
+    return null;
+  }
+
+  function findSelectedVariationText() {
+    const candidates = [...document.querySelectorAll('button, div')];
+    const visible = candidates.filter((el) => {
+      const text = el.textContent?.trim() || '';
+      if (!text || text.length > 120) return false;
+      const style = getComputedStyle(el);
+      return style.display !== 'none' && style.visibility !== 'hidden';
+    });
+
+    const selected = visible.find((el) => {
+      const ariaPressed = el.getAttribute('aria-pressed');
+      const ariaChecked = el.getAttribute('aria-checked');
+      const cls = String(el.className || '').toLowerCase();
+      const style = getComputedStyle(el);
+      const borderColor = style.borderColor || '';
+      const color = style.color || '';
+      return ariaPressed === 'true' || ariaChecked === 'true' || cls.includes('selected') || cls.includes('active') || cls.includes('choosed') || /rgb\(238,\s*77,\s*45\)/.test(borderColor) || /rgb\(238,\s*77,\s*45\)/.test(color);
+    });
+
+    return selected?.textContent?.trim() || null;
+  }
+
+  function parseDisplayedPrice(value) {
+    if (!value) return null;
+    const match = String(value).replace(/\s+/g, ' ').match(/฿\s*([\d,.]+)/);
+    if (!match) return null;
+    const n = Number(match[1].replace(/,/g, ''));
+    return Number.isFinite(n) ? n : null;
   }
 
   function normalizeShopeePrice(value) {
@@ -108,4 +217,9 @@
     const n = Number(value);
     return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
   }
+
+  scheduleDomCapture(1800);
+  addEventListener('load', () => scheduleDomCapture(1200), { once: true });
+  const observer = new MutationObserver(() => scheduleDomCapture(800));
+  observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
 })();
