@@ -17,136 +17,160 @@ export default {
       return json({
         ok: false,
         error: 'Missing shopid or itemid',
-        usage: '/?mode=page&shopid=50216086&itemid=845052410&modelid=1567087028'
+        usage: '/?mode=discover&shopid=50216086&itemid=845052410&modelid=1567087028'
       }, 400);
     }
 
-    if (mode === 'page') {
-      return probeProductPage({ shopid, itemid, modelid });
-    }
-
+    if (mode === 'page') return probeProductPage({ shopid, itemid, modelid });
+    if (mode === 'discover') return discoverDynamicDataSource({ shopid, itemid, modelid });
     return probeItemApi({ shopid, itemid, modelid });
   }
 };
 
 async function probeItemApi({ shopid, itemid, modelid }) {
   const target = `${SHOPEE_ITEM_API}?shopid=${encodeURIComponent(shopid)}&itemid=${encodeURIComponent(itemid)}`;
-
   try {
-    const response = await fetch(target, {
-      headers: browserHeaders('application/json,text/plain,*/*')
-    });
-
+    const response = await fetch(target, { headers: browserHeaders('application/json,text/plain,*/*', false) });
     const text = await response.text();
     let body;
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = text.slice(0, 5000);
-    }
-
+    try { body = JSON.parse(text); } catch { body = text.slice(0, 5000); }
     const models = Array.isArray(body?.data?.models) ? body.data.models : [];
     const selectedModel = modelid
       ? models.find((m) => String(m?.modelid ?? m?.model_id ?? '') === String(modelid)) ?? null
       : null;
-
     return json({
-      probe: 'api',
-      ok: response.ok,
-      upstream_status: response.status,
+      probe: 'api', ok: response.ok, upstream_status: response.status,
       upstream_content_type: response.headers.get('content-type'),
-      request: { shopid, itemid, modelid: modelid ?? null },
-      target,
-      model_count: models.length,
-      selected_model: selectedModel,
-      body
+      request: { shopid, itemid, modelid: modelid ?? null }, target,
+      model_count: models.length, selected_model: selectedModel, body
     }, response.ok ? 200 : 502);
   } catch (error) {
-    return json({
-      probe: 'api',
-      ok: false,
-      request: { shopid, itemid, modelid: modelid ?? null },
-      error: String(error)
-    }, 500);
+    return json({ probe: 'api', ok: false, request: { shopid, itemid, modelid: modelid ?? null }, error: String(error) }, 500);
   }
 }
 
 async function probeProductPage({ shopid, itemid, modelid }) {
-  // Shopee resolves the compact canonical item path even without a product slug.
   const target = `https://shopee.co.th/-i.${encodeURIComponent(shopid)}.${encodeURIComponent(itemid)}`;
-
   try {
     const response = await fetch(target, {
       redirect: 'follow',
-      headers: browserHeaders('text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8')
+      headers: browserHeaders('text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8', true)
     });
-
     const html = await response.text();
-    const needles = [
-      'modelid',
-      'model_id',
-      'models',
-      'price',
-      'stock',
-      '__NEXT_DATA__',
-      'application/ld+json',
-      String(itemid),
-      String(shopid)
-    ];
+    const needles = ['modelid','model_id','models','price','stock','__NEXT_DATA__','application/ld+json',String(itemid),String(shopid)];
     if (modelid) needles.push(String(modelid));
-
-    const markerHits = {};
-    for (const needle of needles) {
-      markerHits[needle] = countOccurrences(html, needle);
-    }
-
+    const markerHits = Object.fromEntries(needles.map((needle) => [needle, countOccurrences(html, needle)]));
     const selectedModelIndex = modelid ? html.indexOf(String(modelid)) : -1;
     const itemIndex = html.indexOf(String(itemid));
     const firstUsefulIndex = selectedModelIndex >= 0 ? selectedModelIndex : itemIndex;
-
     return json({
-      probe: 'page',
-      ok: response.ok,
-      upstream_status: response.status,
-      upstream_content_type: response.headers.get('content-type'),
-      final_url: response.url,
-      request: { shopid, itemid, modelid: modelid ?? null },
-      target,
-      html_length: html.length,
-      marker_hits: markerHits,
+      probe: 'page', ok: response.ok, upstream_status: response.status,
+      upstream_content_type: response.headers.get('content-type'), final_url: response.url,
+      request: { shopid, itemid, modelid: modelid ?? null }, target,
+      html_length: html.length, marker_hits: markerHits,
       selected_model_found: selectedModelIndex >= 0,
-      sample: firstUsefulIndex >= 0
-        ? html.slice(Math.max(0, firstUsefulIndex - 600), firstUsefulIndex + 1400)
-        : html.slice(0, 2000)
+      sample: firstUsefulIndex >= 0 ? html.slice(Math.max(0, firstUsefulIndex - 600), firstUsefulIndex + 1400) : html.slice(0, 2000)
     }, response.ok ? 200 : 502);
   } catch (error) {
-    return json({
-      probe: 'page',
-      ok: false,
-      request: { shopid, itemid, modelid: modelid ?? null },
-      error: String(error)
-    }, 500);
+    return json({ probe: 'page', ok: false, request: { shopid, itemid, modelid: modelid ?? null }, error: String(error) }, 500);
   }
 }
 
-function browserHeaders(accept) {
-  return {
+async function discoverDynamicDataSource({ shopid, itemid, modelid }) {
+  const pageUrl = `https://shopee.co.th/-i.${encodeURIComponent(shopid)}.${encodeURIComponent(itemid)}`;
+  try {
+    const pageResponse = await fetch(pageUrl, {
+      redirect: 'follow',
+      headers: browserHeaders('text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', true)
+    });
+    const html = await pageResponse.text();
+    const scripts = extractScriptSources(html, pageResponse.url).filter((u) =>
+      u.includes('deo.shopeemobile.com/shopee/') || u.includes('shopee.co.th/')
+    );
+
+    const candidates = scripts.slice(0, 10);
+    const needles = [
+      '/api/v4/item/get', 'api/v4/item/get', '/api/v4/pdp/', 'pdp/get',
+      'item_detail', 'item/get', 'shopid', 'itemid', 'modelid', 'models',
+      'price_before_discount', 'stock'
+    ];
+
+    const bundleResults = [];
+    for (const scriptUrl of candidates) {
+      try {
+        const r = await fetch(scriptUrl, {
+          headers: browserHeaders('application/javascript,text/javascript,*/*;q=0.8', false)
+        });
+        const text = await r.text();
+        const hits = [];
+        for (const needle of needles) {
+          const idx = text.indexOf(needle);
+          if (idx >= 0) {
+            hits.push({
+              needle,
+              count: countOccurrences(text, needle),
+              context: text.slice(Math.max(0, idx - 220), Math.min(text.length, idx + needle.length + 420))
+            });
+          }
+        }
+        bundleResults.push({
+          url: scriptUrl,
+          status: r.status,
+          length: text.length,
+          hits
+        });
+      } catch (error) {
+        bundleResults.push({ url: scriptUrl, error: String(error), hits: [] });
+      }
+    }
+
+    const interesting = bundleResults.filter((b) => b.hits?.length);
+    return json({
+      probe: 'discover',
+      ok: pageResponse.ok,
+      page_status: pageResponse.status,
+      page_url: pageResponse.url,
+      request: { shopid, itemid, modelid: modelid ?? null },
+      script_count: scripts.length,
+      scanned_count: candidates.length,
+      interesting_count: interesting.length,
+      interesting_bundles: interesting,
+      scanned_urls: candidates
+    });
+  } catch (error) {
+    return json({ probe: 'discover', ok: false, request: { shopid, itemid, modelid: modelid ?? null }, error: String(error) }, 500);
+  }
+}
+
+function extractScriptSources(html, baseUrl) {
+  const out = [];
+  const re = /<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi;
+  let match;
+  while ((match = re.exec(html))) {
+    try { out.push(new URL(match[1], baseUrl).toString()); } catch {}
+  }
+  return [...new Set(out)];
+}
+
+function browserHeaders(accept, navigate) {
+  const headers = {
     accept,
     'accept-language': 'th-TH,th;q=0.9,en;q=0.8',
-    'cache-control': 'no-cache',
-    pragma: 'no-cache',
-    'upgrade-insecure-requests': '1',
-    'sec-fetch-dest': 'document',
-    'sec-fetch-mode': 'navigate',
-    'sec-fetch-site': 'none',
+    'cache-control': 'no-cache', pragma: 'no-cache',
     'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36'
   };
+  if (navigate) {
+    headers['upgrade-insecure-requests'] = '1';
+    headers['sec-fetch-dest'] = 'document';
+    headers['sec-fetch-mode'] = 'navigate';
+    headers['sec-fetch-site'] = 'none';
+  }
+  return headers;
 }
 
 function countOccurrences(text, needle) {
   if (!needle) return 0;
-  let count = 0;
-  let from = 0;
+  let count = 0, from = 0;
   while (true) {
     const index = text.indexOf(needle, from);
     if (index < 0) return count;
@@ -158,9 +182,6 @@ function countOccurrences(text, needle) {
 function json(data, status = 200) {
   return new Response(JSON.stringify(data, null, 2), {
     status,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'cache-control': 'no-store'
-    }
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }
   });
 }
