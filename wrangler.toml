@@ -2,5 +2,11 @@ name = "sptracking-fetcher-probe"
 main = "src/app.js"
 compatibility_date = "2026-09-15"
 
+[[d1_databases]]
+binding = "DB"
+database_name = "sptracking"
+database_id = "16ea8073-ae9f-4065-bb4a-bc528231bf75"
+migrations_dir = "migrations"
+
 [observability]
 enabled = true
