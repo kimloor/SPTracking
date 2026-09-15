@@ -5,11 +5,18 @@ on:
   push:
     paths:
       - ".github/workflows/fetcher-probe.yml"
+      - "src/**"
+      - "wrangler.toml"
+      - "package.json"
 
 jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
+      - name: Wait for Cloudflare auto-deploy
+        if: github.event_name == 'push'
+        run: sleep 25
+
       - name: Probe Worker root
         continue-on-error: true
         run: |
@@ -55,7 +62,7 @@ jobs:
       - name: Discover dynamic product endpoint from Shopee bundles
         run: |
           set -uxo pipefail
-          curl -sS --max-time 60 \
+          curl -sS --max-time 90 \
             -w '\n__HTTP_STATUS__:%{http_code}\n' \
             "https://sptracking-fetcher-probe.ekqtjl.workers.dev/?mode=discover&shopid=50216086&itemid=845052410&modelid=1567087028" \
             | tee discover.out
