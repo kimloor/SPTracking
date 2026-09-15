@@ -24,6 +24,16 @@ jobs:
           curl -sS --fail-with-body --max-time 30 \
             "https://sptracking-fetcher-probe.ekqtjl.workers.dev/health"
 
+      - name: Cloudflare Browser Run POC
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          curl -sS --max-time 60 \
+            -w '\n__HTTP_STATUS__:%{http_code}\n' \
+            "https://sptracking-fetcher-probe.ekqtjl.workers.dev/api/cloudflare-browser-poc" \
+            | tee browser-run-poc.out
+          cat browser-run-poc.out
+
       - name: Dashboard
         run: |
           set -euo pipefail
