@@ -1,0 +1,38 @@
+name: Shopee Headless POC
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/headless-poc.yml"
+      - "scripts/headless-poc.mjs"
+      - "package.json"
+
+jobs:
+  headless-poc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run headless Shopee POC
+        run: npm run headless:poc
+
+      - name: Upload failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: headless-poc-failure
+          path: headless-poc-failure.png
+          if-no-files-found: ignore
