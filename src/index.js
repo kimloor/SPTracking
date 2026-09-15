@@ -93,7 +93,9 @@ async function discoverDynamicDataSource({ shopid, itemid, modelid }) {
     const needles = [
       '/api/v4/item/get', 'api/v4/item/get', '/api/v4/pdp/', 'pdp/get',
       'item_detail', 'item/get', 'shopid', 'itemid', 'modelid', 'models',
-      'price_before_discount', 'price_min', 'price_max', 'stock', 'variation'
+      'price_before_discount', 'price_min', 'price_max', 'stock', 'variation',
+      'client_name', 'x-api-source', 'x-csrftoken', 'csrftoken', 'x-requested-with',
+      'af-ac-enc-dat', 'SPC_CDS', 'SPC_EC', 'SPC_ST', 'referer', 'apm'
     ];
 
     const bundleResults = [];
@@ -110,7 +112,7 @@ async function discoverDynamicDataSource({ shopid, itemid, modelid }) {
             hits.push({
               needle,
               count: countOccurrences(text, needle),
-              context: text.slice(Math.max(0, idx - 260), Math.min(text.length, idx + needle.length + 520))
+              context: text.slice(Math.max(0, idx - 300), Math.min(text.length, idx + needle.length + 650))
             });
           }
         }
@@ -146,7 +148,6 @@ async function discoverDynamicDataSource({ shopid, itemid, modelid }) {
 
 function extractJavaScriptSources(html, baseUrl) {
   const out = [];
-
   const scriptRe = /<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi;
   let match;
   while ((match = scriptRe.exec(html))) addUrl(out, match[1], baseUrl);
@@ -161,7 +162,6 @@ function extractJavaScriptSources(html, baseUrl) {
     const isScriptPreload = rel.includes('modulepreload') || (rel.includes('preload') && as === 'script');
     if (isScriptPreload) addUrl(out, href, baseUrl);
   }
-
   return [...new Set(out)];
 }
 
