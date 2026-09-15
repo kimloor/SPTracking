@@ -51,3 +51,12 @@ jobs:
             "https://sptracking-fetcher-probe.ekqtjl.workers.dev/?mode=page&shopid=669016075&itemid=58155169453&modelid=315476033986" \
             | tee hitachi-page.out
           cat hitachi-page.out
+
+      - name: Discover dynamic product endpoint from Shopee bundles
+        run: |
+          set -uxo pipefail
+          curl -sS --max-time 60 \
+            -w '\n__HTTP_STATUS__:%{http_code}\n' \
+            "https://sptracking-fetcher-probe.ekqtjl.workers.dev/?mode=discover&shopid=50216086&itemid=845052410&modelid=1567087028" \
+            | tee discover.out
+          cat discover.out
