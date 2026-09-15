@@ -16,24 +16,38 @@ jobs:
           set -uxo pipefail
           curl -i --max-time 30 "https://sptracking-fetcher-probe.ekqtjl.workers.dev/"
 
-      - name: Probe MamyPoko variation
+      - name: Probe MamyPoko API
         run: |
           set -uxo pipefail
           curl -sS --max-time 30 \
             -w '\n__HTTP_STATUS__:%{http_code}\n' \
             "https://sptracking-fetcher-probe.ekqtjl.workers.dev/?shopid=50216086&itemid=845052410&modelid=1567087028" \
-            | tee mamypoko.out
-          echo
-          echo "--- response ---"
-          cat mamypoko.out
+            | tee mamypoko-api.out
+          cat mamypoko-api.out
 
-      - name: Probe Hitachi variation
+      - name: Probe Hitachi API
         run: |
           set -uxo pipefail
           curl -sS --max-time 30 \
             -w '\n__HTTP_STATUS__:%{http_code}\n' \
             "https://sptracking-fetcher-probe.ekqtjl.workers.dev/?shopid=669016075&itemid=58155169453&modelid=315476033986" \
-            | tee hitachi.out
-          echo
-          echo "--- response ---"
-          cat hitachi.out
+            | tee hitachi-api.out
+          cat hitachi-api.out
+
+      - name: Probe MamyPoko product page
+        run: |
+          set -uxo pipefail
+          curl -sS --max-time 30 \
+            -w '\n__HTTP_STATUS__:%{http_code}\n' \
+            "https://sptracking-fetcher-probe.ekqtjl.workers.dev/?mode=page&shopid=50216086&itemid=845052410&modelid=1567087028" \
+            | tee mamypoko-page.out
+          cat mamypoko-page.out
+
+      - name: Probe Hitachi product page
+        run: |
+          set -uxo pipefail
+          curl -sS --max-time 30 \
+            -w '\n__HTTP_STATUS__:%{http_code}\n' \
+            "https://sptracking-fetcher-probe.ekqtjl.workers.dev/?mode=page&shopid=669016075&itemid=58155169453&modelid=315476033986" \
+            | tee hitachi-page.out
+          cat hitachi-page.out
