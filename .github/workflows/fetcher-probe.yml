@@ -1,4 +1,4 @@
-name: Fetcher Probe
+name: SPTracking Smoke Test
 
 on:
   workflow_dispatch:
@@ -11,80 +11,54 @@ on:
       - "package.json"
 
 jobs:
-  probe:
+  smoke:
     runs-on: ubuntu-latest
     steps:
       - name: Wait for Cloudflare auto-deploy
         if: github.event_name == 'push'
         run: sleep 25
 
-      - name: Probe Worker root
-        continue-on-error: true
+      - name: Health
         run: |
-          set -uxo pipefail
-          curl -i --max-time 30 "https://sptracking-fetcher-probe.ekqtjl.workers.dev/"
+          set -euo pipefail
+          curl -sS --fail-with-body --max-time 30 \
+            "https://sptracking-fetcher-probe.ekqtjl.workers.dev/health"
 
-      - name: Probe browser capture endpoint
+      - name: Dashboard
         run: |
-          set -uxo pipefail
-          curl -sS --max-time 30 \
+          set -euo pipefail
+          code=$(curl -sS -o dashboard.html -w '%{http_code}' --max-time 30 \
+            "https://sptracking-fetcher-probe.ekqtjl.workers.dev/")
+          test "$code" = "200"
+          grep -q "SPTracking" dashboard.html
+
+      - name: Lookup tracked MamyPoko variation
+        run: |
+          set -euo pipefail
+          curl -sS --fail-with-body --max-time 30 \
             -H 'content-type: application/json' \
-            -d '{"shop_id":"50216086","item_id":"845052410","model_id":"1567087028","product_name":"มามี่โพโคแพ้นท์ Premium Extra Dry S/M/L/XL/XXXL x4ห่อ","variation_name":"XXL 34ชิ้น ชาย x4ห่อ","price":1390,"original_price":1390,"stock":1,"transport":"ci_probe","source_url":"https://shopee.co.th/-i.50216086.845052410"}' \
-            -w '\n__HTTP_STATUS__:%{http_code}\n' \
-            "https://sptracking-fetcher-probe.ekqtjl.workers.dev/api/browser-capture" \
-            | tee browser-capture.out
-          cat browser-capture.out
+            -d '{"url":"https://shopee.co.th/-i.50216086.845052410?extraParams=%7B%22display_model_id%22%3A1567087028%7D"}' \
+            "https://sptracking-fetcher-probe.ekqtjl.workers.dev/api/lookup" \
+            | tee lookup.json
+          python - <<'PY'
+          import json
+          data=json.load(open('lookup.json',encoding='utf-8'))
+          assert data['ok'] is True
+          assert str(data['model_id']) == '1567087028'
+          assert data['current_price'] == 1390
+          print('lookup ok:', data['variation_name'], data['current_price'])
+          PY
 
-      - name: Verify MamyPoko D1 history
+      - name: Verify D1 history
         run: |
-          set -uxo pipefail
-          curl -sS --max-time 30 \
-            -w '\n__HTTP_STATUS__:%{http_code}\n' \
+          set -euo pipefail
+          curl -sS --fail-with-body --max-time 30 \
             "https://sptracking-fetcher-probe.ekqtjl.workers.dev/api/history/50216086/845052410/1567087028?limit=10" \
-            | tee history.out
-          cat history.out
-
-      - name: Probe MamyPoko API
-        run: |
-          set -uxo pipefail
-          curl -sS --max-time 30 \
-            -w '\n__HTTP_STATUS__:%{http_code}\n' \
-            "https://sptracking-fetcher-probe.ekqtjl.workers.dev/?shopid=50216086&itemid=845052410&modelid=1567087028" \
-            | tee mamypoko-api.out
-          cat mamypoko-api.out
-
-      - name: Probe Hitachi API
-        run: |
-          set -uxo pipefail
-          curl -sS --max-time 30 \
-            -w '\n__HTTP_STATUS__:%{http_code}\n' \
-            "https://sptracking-fetcher-probe.ekqtjl.workers.dev/?shopid=669016075&itemid=58155169453&modelid=315476033986" \
-            | tee hitachi-api.out
-          cat hitachi-api.out
-
-      - name: Probe MamyPoko product page
-        run: |
-          set -uxo pipefail
-          curl -sS --max-time 30 \
-            -w '\n__HTTP_STATUS__:%{http_code}\n' \
-            "https://sptracking-fetcher-probe.ekqtjl.workers.dev/?mode=page&shopid=50216086&itemid=845052410&modelid=1567087028" \
-            | tee mamypoko-page.out
-          cat mamypoko-page.out
-
-      - name: Probe Hitachi product page
-        run: |
-          set -uxo pipefail
-          curl -sS --max-time 30 \
-            -w '\n__HTTP_STATUS__:%{http_code}\n' \
-            "https://sptracking-fetcher-probe.ekqtjl.workers.dev/?mode=page&shopid=669016075&itemid=58155169453&modelid=315476033986" \
-            | tee hitachi-page.out
-          cat hitachi-page.out
-
-      - name: Discover dynamic product endpoint from Shopee bundles
-        run: |
-          set -uxo pipefail
-          curl -sS --max-time 90 \
-            -w '\n__HTTP_STATUS__:%{http_code}\n' \
-            "https://sptracking-fetcher-probe.ekqtjl.workers.dev/?mode=discover&shopid=50216086&itemid=845052410&modelid=1567087028" \
-            | tee discover.out
-          cat discover.out
+            | tee history.json
+          python - <<'PY'
+          import json
+          data=json.load(open('history.json',encoding='utf-8'))
+          assert data['ok'] is True
+          assert data['stats']['observations'] >= 1
+          print('history observations:', data['stats']['observations'])
+          PY
