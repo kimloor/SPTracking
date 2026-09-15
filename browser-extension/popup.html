@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SPTracking Capture</title>
+  <style>
+    body { font-family: system-ui, sans-serif; width: 360px; margin: 0; padding: 14px; background: #fff; color: #222; }
+    h1 { font-size: 16px; margin: 0 0 10px; }
+    .status { padding: 8px 10px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 10px; }
+    dl { display: grid; grid-template-columns: 110px 1fr; gap: 6px 8px; margin: 0; }
+    dt { font-weight: 600; }
+    dd { margin: 0; overflow-wrap: anywhere; }
+    .muted { color: #666; font-size: 12px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>SPTracking Shopee Capture</h1>
+  <div id="status" class="status">ยังไม่มีข้อมูล</div>
+  <dl id="data"></dl>
+  <div class="muted">เปิดหน้าสินค้า Shopee ที่มีรุ่นถูกเลือก แล้วรีเฟรช 1 ครั้ง หากหน้า Shopee เรียกข้อมูลสินค้า Extension จะจับผลจาก request เดิมของหน้าโดยอัตโนมัติ</div>
+  <script src="popup.js"></script>
+</body>
+</html>
