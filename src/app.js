@@ -2,6 +2,8 @@ import probe from './index.js';
 import { persistCapture, getVariantHistory } from './storage.js';
 import { renderHome } from './ui.js';
 
+const HEADLESS_POC_URL = 'https://shopee.co.th/-i.50216086.845052410?extraParams=%7B%22display_model_id%22%3A1567087028%7D';
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -16,7 +18,16 @@ export default {
     }
 
     if (url.pathname === '/health' && request.method === 'GET') {
-      return jsonCors({ ok: true, service: 'sptracking', database: !!env?.DB });
+      return jsonCors({
+        ok: true,
+        service: 'sptracking',
+        database: !!env?.DB,
+        browser_run: !!env?.BROWSER
+      });
+    }
+
+    if (url.pathname === '/api/cloudflare-browser-poc' && request.method === 'GET') {
+      return handleCloudflareBrowserPoc(env);
     }
 
     if (url.pathname === '/api/lookup' && request.method === 'POST') {
@@ -53,6 +64,56 @@ export default {
     return probe.fetch(request, env, ctx);
   }
 };
+
+async function handleCloudflareBrowserPoc(env) {
+  if (!env?.BROWSER) {
+    return jsonCors({ ok: false, error: 'Browser Run binding BROWSER is not configured' }, 503);
+  }
+
+  try {
+    const rendered = await env.BROWSER.quickAction('content', {
+      url: HEADLESS_POC_URL,
+      gotoOptions: { waitUntil: 'networkidle2', timeout: 30000 }
+    });
+
+    const html = await rendered.text();
+    const title = decodeHtml((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '').trim());
+    const text = stripHtml(html);
+    const modelId = '1567087028';
+    const productNeedle = 'Premium Extra Dry';
+    const variationNeedle = 'XXL 34';
+    const priceNeedle = '1,390';
+
+    return jsonCors({
+      ok: Boolean(
+        html.includes(modelId) ||
+        text.includes(productNeedle) ||
+        text.includes(variationNeedle) ||
+        text.includes(priceNeedle)
+      ),
+      engine: 'cloudflare_browser_run',
+      target: HEADLESS_POC_URL,
+      upstream_status: rendered.status,
+      title: title || null,
+      html_length: html.length,
+      markers: {
+        model_id: html.includes(modelId),
+        product_name: text.includes(productNeedle),
+        variation: text.includes(variationNeedle),
+        price_1390: text.includes(priceNeedle),
+        shopee_missing_page: /It looks like something is missing!/i.test(title + ' ' + text)
+      },
+      text_sample: text.slice(0, 1200)
+    });
+  } catch (error) {
+    return jsonCors({
+      ok: false,
+      engine: 'cloudflare_browser_run',
+      target: HEADLESS_POC_URL,
+      error: String(error)
+    }, 500);
+  }
+}
 
 async function handleLookup(request, env) {
   let body;
@@ -224,6 +285,24 @@ function normalizeCapture(body) {
       captured_at_client: text(body?.captured_at_client, 100)
     }
   };
+}
+
+function decodeHtml(value) {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function stripHtml(html) {
+  return decodeHtml(html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim());
 }
 
 function id(value) {
