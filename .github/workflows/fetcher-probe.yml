@@ -1,0 +1,56 @@
+name: Fetcher Probe
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/fetcher-probe.yml"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe Worker root
+        run: |
+          set -euxo pipefail
+          curl -i --fail-with-body --max-time 30 "https://sptracking-fetcher-probe.ekqtjl.workers.dev/"
+
+      - name: Probe MamyPoko variation
+        run: |
+          set -euxo pipefail
+          curl -sS --fail-with-body --max-time 30 \
+            "https://sptracking-fetcher-probe.ekqtjl.workers.dev/?shopid=50216086&itemid=845052410&modelid=1567087028" \
+            | tee mamypoko.json
+          echo
+          echo "--- response summary ---"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('mamypoko.json')
+          try:
+              data = json.loads(p.read_text())
+              print(json.dumps(data, ensure_ascii=False, indent=2)[:12000])
+          except Exception as e:
+              print(p.read_text()[:12000])
+              print('JSON parse error:', e)
+          PY
+
+      - name: Probe Hitachi variation
+        run: |
+          set -euxo pipefail
+          curl -sS --fail-with-body --max-time 30 \
+            "https://sptracking-fetcher-probe.ekqtjl.workers.dev/?shopid=669016075&itemid=58155169453&modelid=315476033986" \
+            | tee hitachi.json
+          echo
+          echo "--- response summary ---"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('hitachi.json')
+          try:
+              data = json.loads(p.read_text())
+              print(json.dumps(data, ensure_ascii=False, indent=2)[:12000])
+          except Exception as e:
+              print(p.read_text()[:12000])
+              print('JSON parse error:', e)
+          PY
