@@ -175,25 +175,46 @@
   }
 
   function findSelectedVariationText() {
-    const candidates = [...document.querySelectorAll('button, div')];
-    const visible = candidates.filter((el) => {
-      const text = el.textContent?.trim() || '';
-      if (!text || text.length > 120) return false;
-      const style = getComputedStyle(el);
-      return style.display !== 'none' && style.visibility !== 'hidden';
-    });
+    const candidates = [...document.querySelectorAll('button, [role="button"], div')];
+    const scored = [];
 
-    const selected = visible.find((el) => {
+    for (const el of candidates) {
+      const text = compactText(el.textContent);
+      if (!text || text.length > 100) continue;
+      if (/^฿\s*[\d,.]+$/.test(text) || /\bprice\b/i.test(text)) continue;
+      if (/^(add to cart|buy now|variation|quantity)$/i.test(text)) continue;
+
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 30 || rect.height < 20 || rect.width > 500 || rect.height > 100) continue;
+
+      const style = getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || 1) === 0) continue;
+
+      let score = 0;
       const ariaPressed = el.getAttribute('aria-pressed');
       const ariaChecked = el.getAttribute('aria-checked');
       const cls = String(el.className || '').toLowerCase();
-      const style = getComputedStyle(el);
       const borderColor = style.borderColor || '';
       const color = style.color || '';
-      return ariaPressed === 'true' || ariaChecked === 'true' || cls.includes('selected') || cls.includes('active') || cls.includes('choosed') || /rgb\(238,\s*77,\s*45\)/.test(borderColor) || /rgb\(238,\s*77,\s*45\)/.test(color);
-    });
 
-    return selected?.textContent?.trim() || null;
+      if (ariaPressed === 'true' || ariaChecked === 'true') score += 12;
+      if (/selected|active|chosen|choosed/.test(cls)) score += 8;
+      if (/rgb\(238,\s*77,\s*45\)/.test(borderColor) || /rgb\(255,\s*87,\s*34\)/.test(borderColor)) score += 7;
+      if (/rgb\(238,\s*77,\s*45\)/.test(color) || /rgb\(255,\s*87,\s*34\)/.test(color)) score += 2;
+      if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') score += 3;
+      if (el.querySelector('img')) score += 2;
+      if (/\d/.test(text)) score += 1;
+      if (text.includes('x4') || text.includes('ชิ้น') || text.includes('ชาย') || text.includes('หญิง')) score += 3;
+
+      if (score >= 7) scored.push({ text, score, area: rect.width * rect.height });
+    }
+
+    scored.sort((a, b) => b.score - a.score || a.area - b.area || a.text.length - b.text.length);
+    return scored[0]?.text || null;
+  }
+
+  function compactText(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
   }
 
   function parseDisplayedPrice(value) {
