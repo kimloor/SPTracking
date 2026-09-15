@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "headless:poc": "node scripts/headless-poc.mjs"
   },
   "devDependencies": {
+    "playwright": "^1.55.0",
     "wrangler": "^4.0.0"
   }
 }
